@@ -1,0 +1,98 @@
+-- Sylvio Correa e Annderson Oreto
+
+-- Número de processos que vão ser executados.
+-- Este número não pode ser alterado sozinho, pois cada processo p
+-- adicionado deve ter também uma função aresta(p) correspondente
+-- (ver função aresta abaixo).
+nProcs = 5
+
+-- Conjunto de processos
+procSet = {0..nProcs-1}
+
+-- Conjunto de mensagens.
+-- Número limitado de mensagens possíveis para possibilitar probe.
+msg = {0..3}
+
+-- Canal onde são feitas as comunicações. Recebe a identificação
+-- do nodo que envia, do nodo que recebe e da mensagem
+channel com: procSet.procSet.msg
+
+-- arq é o conjunto de mensagens recebidas anteriormente
+-- Um nodo pode receber (processo Receive) uma mensagem, passando-a adiante ou
+-- ignorando-a se ela já tier sido recebida ou enviada antes.
+-- Ou o nodo pode enviar (processo Send) uma mensagem nova.
+Nodo(id, arq) =
+  Receive(id, arq) [] Send(id, arq)
+
+
+
+-- Protocolo de recebimento de mensagem. Se a mensagem recebida
+-- já estiver no arquivo, ela é ignorada. Do contrário, o nodo inicia
+-- um processo de flood e adiciona a mensagem ao arquivo.
+Receive(id, arq) =
+  []sdr : arestas(id), m : msg @ com.sdr.id.m ->
+    if member(m, arq)
+    then Nodo(id, arq)
+    else ( Nodo(id, union({m},arq) ) ||| Flood(id,sdr,m) )
+
+
+
+-- Envia alguma mensagem que não faz parte do arquivo
+-- para os nodos adjacentes e então se comporta como Nodo
+-- (operador (;))
+Send(id, arq) =
+  []m : diff(msg, arq) @
+    Flood(id, -1,m) ; Nodo(id, union({m},arq))
+
+
+
+
+-- Processo de flooding.
+-- Consiste na propagação da mensagem a todos os nodos ligados ao nodo sdr
+-- através de um interleaving de eventos de comunicação.
+-- O primeiro argumento é a identidade do nodo que vai enviar para seus vizinhos.
+-- O segundo argumento é o nodo que enviou a mensagem para sdr, ou -1 no caso
+-- de sdr ser o originador da mensagem. Este argumento é enviado para Flood
+-- apenas para que o processo saiba que não precisa enviar a mensagem para
+-- este nodo.
+Flood(sdr, sent, m) =
+  ||| rcv : diff(arestas(sdr), {sent}) @ com.sdr.rcv.m -> SKIP
+
+
+
+-- arestas(x) é uma função que retorna o conjunto de nodos ao qual
+-- o nodo x está conectado
+arestas(0) = {1,2}
+arestas(1) = {0,4}
+arestas(2) = {0,4}
+arestas(3) = {2}
+arestas(4) = {1,2}
+
+-- função que retorna um conjunto com todos os nodos ligados a x
+-- mais ele mesmo
+subGrafo(x) = union({x}, arestas(x))
+
+-- Alfabeto do paralelismo de um processo.
+-- O processo sincroniza quando recebe ou envia uma comunicação para os
+-- nodos adjacentes.
+pAlphabet(i) = {com.sdr.rcv.m | sdr : subGrafo(i), rcv : subGrafo(i), m : msg}
+
+System = || p : procSet @ [pAlphabet(p)] Nodo(p, {})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,345 @@
+-- Sylvio Correa e Annderson Oreto
+
+
+
+
+
+-- PUCRS - Disciplina MMC - Modelos de Computação Concorrente
+-- Linguagem CSP
+-- Prof. Dotti
+-- Exercicios - verificacao de propriedades utilizando refinamento
+--
+-- Veja a descricao do modelo abaixo, adaptado de Bill Roscoe, e
+-- a seguir, resolva utilizando refinamento e o FDR, as questoes
+-- colocadas.
+
+-- MODELO -------------------------------------------------------------
+-- Token Ring 
+-- Um token fica circulando pelo 
+-- anel. Quando uma estacao recebe um token, ela pode passar o token adiante
+-- ou enviar uma mensagem.   Se uma mensagem ee enviada ela circula ate o 
+-- originador, que entao retira a mensagem do anel e passa o token adiante.
+-- Este anel permite mais de um token.
+
+T={0}                                                  -- o tipo da mensagem que trafega (vazia)
+N=4													   -- numero de nodos na rede
+tokens = 1											   -- numero de tokens
+
+Nodes = {0..N-1}
+
+datatype Token = Empty | Full.Packet                   -- token está vazio ou tem uma mensagem
+
+Packet = {(a,b,m) | a <- Nodes, b <- Nodes, m <- T}    -- a é origem, b é destino
+
+channel ring:Nodes.Token                               -- cada nodo tem um canal ring com seu id, por onde recebe token
+
+channel send,receive: Nodes.Nodes.T                    -- send de/para   fonte.destino.mensagem
+													   -- receive por/de destino.fonte.mensagem
+													   -- representam resoectivamente
+													   --     o evento de criacao (send) de uma mensagem para envio no anel
+													   --     e o evento de recepcao desta mensagem no destinatario
+NodeInit(n) =    
+           send.n?r?m ->  (                            -- nodo que tem token quer mandar mensagem
+              if n==r                                  -- se esta mandando para ele mesmo
+              then (receive.r.n.m ->                   -- recebe
+                   ring.(n+1)%N.Empty ->               -- passa token no anel
+                   Node(n) )
+              else (ring.(n+1)%N.Full.(n,r,m) ->       -- mensagem para outro, manda no anel
+                   Node(n)) )                           
+          [] 
+           ring.(n+1)%N.Empty ->                       -- nodo com token nao quer mandar mensagem
+              Node(n)                                  -- manda mensagem Empty - ou seja passa o token
+ 
+Node(n) =  ring.n.Empty -> NodeInit(n)                 -- nodo sem token vazio, se recebe token se comporta como processo acima
+          [] 
+           ring.n?Full.(s,r,m) -> NodeFw(n,s,r,m)      -- se recebe mensagem e trata o repasse como processo abaixo
+
+NodeFw(n,s,r,m) =                                      -- avaliacao de mensagem recebida
+           if n==s                                     -- se o source da mensagem ee este nodo, ja deu a volta
+           then ring.(n+1)%N.Empty -> Node(n)          -- repassa token livre para o proximo 
+           else if n==r                                -- se este nodo ee o destino entao 
+                then receive.r.s.m ->                  -- recebe a mensagem 
+                     ring.(n+1)%N.Full.(s,n,m) ->      -- e manda ela a diante no anel para dar a volta
+                     Node(n)  
+                else ring.(n+1)%N.Full.(s,r,m) ->      -- nodo nao ee o destino - repassa a mensagem
+                     Node(n)             
+
+A(n) = {| ring.n, ring.(n+1)%N, send.n, receive.n |}       -- alfabeto do nodo n
+
+Init(n) = if n<tokens then NodeInit(n) else Node(n)    -- um nodo tem token
+
+Ring = || i:Nodes @[A(i)] Init(i)                      -- composicao paralela dos N nodos
+
+
+
+
+
+
+
+
+
+
+-- Para o modelo acima, deseja-se demonstrar, usando refinamento e o FDR, 
+-- as seguintes propriedades:   
+
+
+
+-- ==========================================================================
+-- ==========================================================================
+
+
+
+
+-- 1) o ring nao tem bloqueio  -  prove SEM utilizar "assert Ring :[deadlock free]"
+--    ou seja, monte sua especificacao usando CSP e avalie refinamento
+
+
+
+-- Especificação para o evento send
+-- SendSpec efetua um evento send qualquer e então se comporta como sendRef novamente.
+
+-- Especificacao para todos os eventos
+
+SpecTodos = |~| e : {|send, ring, receive|} @ e -> SpecTodos
+
+assert SpecTodos [F= Ring
+
+
+-- Especificacao para eventos send
+
+SendSpec = 
+  |~| n1 : Nodes, n2 : Nodes, m : T @ send.n1.n2.m -> SendSpec
+
+RingSend = Ring |\ {send.n1.n2.m | n1 : Nodes, n2 : Nodes, m : T}
+
+assert SendSpec [F= RingSend
+
+
+
+
+-- Especificação para o evento receive
+
+ReceiveSpec =
+  |~| n1 : Nodes, n2 : Nodes, m : T @ receive.n1.n2.m -> ReceiveSpec
+
+RingRcv = Ring |\ {receive.n1.n2.m | n1 : Nodes, n2 : Nodes, m : T}
+
+assert ReceiveSpec [F= RingRcv
+
+
+
+-- Especificação para o evento ring
+
+InternalRingSpec =
+  |~| n : Nodes, t : Token @ ring.n.t -> InternalRingSpec
+
+-- Ring com projeção sobre os eventos ring
+RingRing =
+  Ring |\ {ring.n.t | n : Nodes, t : Token}
+
+assert InternalRingSpec [F= RingRing
+
+
+
+
+
+
+-- ==========================================================================
+-- ==========================================================================
+
+
+
+
+
+-- 2) uma mensagem enviada é recebida pelo nodo destinatario
+
+SndRcvSpec =
+  [] ns : Nodes, nr : Nodes, m : T @
+    send.ns.nr.m -> receive.nr.ns.m -> SndRcvSpec
+    
+
+
+RingSndRcv = Ring \ {|ring|}
+
+assert SndRcvSpec [F= RingSndRcv
+
+
+
+
+-- Correcao
+
+SndRcvSpec2 =
+  |~| ns : Nodes, nr : Nodes, m : T @
+      send.ns.nr.m -> receive.nr.ns.m -> SndRcvSpec2
+      
+assert SndRcvSpec2 [F= RingSndRcv
+
+
+-- ==========================================================================
+-- ==========================================================================
+
+
+
+
+-- 3) em uma rede com um token, se uma mensagem é enviada, 
+--    outra não é enviada até que a primeira dê a volta no anel
+
+-- Especificação do loop esperado de um envio. Quando um nodo envia
+-- uma mensagem, espera-se que o destinatário (rcv) receba a mensagem
+-- antes que algum nodo possa executar send outra vez.
+SendLoop =
+  |~| sdr : Nodes, rcv : Nodes, m : T @
+      send.sdr.rcv.m -> receive.rcv.sdr.m -> SendLoop
+
+-- O processo Ring, escondendo (\) todos os processos ring, deixando
+-- visíveis apenas os processos send e receive.
+RingSendLoop =
+  Ring \ {|ring|}
+
+assert SendLoop [T= RingSendLoop
+
+
+
+
+
+-- ==========================================================================
+-- ==========================================================================
+
+
+
+-- 4) toda estação sempre podera voltar a enviar uma mensagem
+
+
+
+
+
+{-
+    -- SendAgain repete indefinidamente o evento send de um nodo de origem
+    -- específico n.
+    
+    SendAgain(n) =
+      send.n?n2?m -> SendAgain(n)
+
+
+    -- RingSendAgain(n) é uma projeção de Ring que só mostra os eventos send
+    -- de um nodo específico n
+
+
+    RingSendAgain(n) =
+      Ring |\ {send.n.n2.m | n2 : Nodes, m : T}
+
+    -- Uma tentiva foi feita para gerar uma unica asserção parametrizada,
+    -- porém não se obteve sucesso. Então as asserções foram feitas para cada nodo.
+
+    assert SendAgain(0) [F= RingSendAgain(0)
+    assert SendAgain(1) [F= RingSendAgain(1)
+    assert SendAgain(2) [F= RingSendAgain(2)
+    assert SendAgain(3) [F= RingSendAgain(3)
+
+    -- Outras duas estratégias foram pensadas para efetuar este teste.
+    -- Uma delas envolvia tornar n escolha externa dentro da asserção,
+    -- mas não pareceu ser possível. Tentou-se ainda estabelecer um processo
+    -- SendAgain com uma escolha externa de n que então levava para o
+    -- SendAgain com projeção (|\) sobre o conjunto de todos os sends do
+    -- nodo de origem n. No entanto, o fdr não aceita o uso de projeção
+    -- dentro de recursoes.
+    -- Segue abaixo outra tentativa falha.
+
+
+    
+    SendAgain =
+      |~| n1 : Nodes, n2 : Nodes, m : T @
+          send.n1.n2.m -> SendAgain2(n1)
+
+    SendAgain2(n) =
+      |~| n2 : Nodes, m : T @
+          send.n.n2.m -> SendAgain2(n)
+
+    RingSendAgain =
+          Ring |\ {send.n1.n2.m | n1 : Nodes, n2 : Nodes, m : T}
+
+    assert SendAgain [F= RingSendAgain
+-}
+
+
+
+-- O operador de escolha interna usado para todos os Nodes garante que QUALQUER
+-- node pode voltar a enviar:
+SendAgain =
+  |~| (a,b,m):Packet @ send.a.b.m -> SendAgain
+
+assert SendAgain [F= RingSend
+
+
+
+
+
+
+-- ==========================================================================
+-- ==========================================================================
+
+
+
+
+-- 5) em uma rede com um token, após o "send" de uma mensagem, 
+--    não mais que N transmissoes em enlaces "ring.i" acontecem 
+--    antes do envio de um token vazio
+
+
+
+
+next(n) = (n+1)%N
+
+-- Full2EmptySpec(n1) pode passar o token vazio ou pode se comportar
+-- como o processo de envio de mensagens Full2EmptySpec2(n1)
+Full2EmptySpec(n1) =
+    ring.next(n1).Empty -> Full2EmptySpec(next(n1))
+  |~|
+    Full2EmptySpec2(n1)
+
+-- Full2EmptySpec2(n1) envia uma mensagem e então 2 comportamentos
+-- são possíveis. Se o nodo que esta enviando eh o proprio nodo que
+-- estah com o token, então o envio do token vazio para o nodo subsequente
+-- ocorre imediatamente. Senão, havera uma sequencia de exatamente N eventos
+-- ring com tokens Full e so então acontecera um evento ring com token vazio
+Full2EmptySpec2(n1) =
+  |~| n2:Nodes, m:T @ send.n1.n2.m ->
+        if n1 == n2
+        then Full2EmptySpec3(n1, Full.(n1,n2,m), 0)
+        else Full2EmptySpec3(n1, Full.(n1,n2,m), N)
+
+
+Full2EmptySpec3(nodo, _, 0) =
+  ring.next(nodo).Empty -> Full2EmptySpec(next(nodo))
+
+
+-- n funciona como um contador que decrementa a cada recursão:
+Full2EmptySpec3(nodo, m, n) =
+  ring.next(nodo).m -> Full2EmptySpec3(next(nodo), m, n-1)
+
+  
+-- Ring, mas com os eventos receive escondidos
+RingFull2Empty =
+  Ring \ {|receive|}
+
+assert Full2EmptySpec(0) [F= RingFull2Empty
+
+
+
+
+
+-- ==========================================================================
+-- ==========================================================================
+
+
+
+
+
+-- ORIENTACOES:
+-- Resolva cada questao acima com definicoes exatamente abaixo da respectiva questao
+-- Comente a estrategia para suas definicoes com comentarios (como estes)
+-- Poste no moodle no dia combinado com o professor.
+
+
+
+

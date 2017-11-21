@@ -1,0 +1,186 @@
+-- Annderson oreto e Sylvio Correa
+
+
+-- Modelos de Computacao Concorrente
+-- Exercicio para iniciar no dia 14/11 e entregar no dia 21/11
+-- 
+-- Este modelo � de Bill Roscoe
+-- Peterson's Algorithm in CSP: version 2
+-- Simon Gay, Royal Holloway, January 1999
+--
+-- Trata-se do algoritmo de Peterson para exclusao mutua por software para dois processos,
+-- modelado por Bill Roscoe
+--
+-- Leia e entenda o modelo.   E depois tente demonstrar as propriedades escritas em 
+-- portugues utilizando refinamento com a ferramenta FDR
+--
+
+-- processos sao identificados por ids 1 e 2
+
+-- leitura e escrita das flags 1 e 2
+channel flag1set, flag1read, flag2set, flag2read:{1..2}.{false,true}
+
+-- leitura e escrita de turn
+channel turnset, turnread:{1..2}.{1..2}
+
+-- canais marcando entrada e saida da SC dos processos 1 e 2
+channel enter, critical, leave:{1..2}
+
+                                        -- variavel flag 1 pode ...   
+FLAG1(v) =  flag1set?x?y -> FLAG1(y)    -- ser setada por qualquer processo para o valor y
+         [] flag1read.1.v -> FLAG1(v)   -- ser lida pelo processo 1  
+         [] flag1read.2.v -> FLAG1(v)   -- ou pelo processo 2
+
+                                        -- variavel flag 1 pode ...
+FLAG2(v) =  flag2set?x?y -> FLAG2(y)    -- a mesma coisa ...
+         [] flag2read.1.v -> FLAG2(v)
+         [] flag2read.2.v -> FLAG2(v)
+         
+         								-- variavel turn pode
+TURN(v) =  turnset?x?y -> TURN(y)       -- ser setada por qualquer processo para o valor y 
+        [] turnread.1.v -> TURN(v)      -- ser lida por 1
+        [] turnread.2.v -> TURN(v)      -- ou por processo 2 
+
+
+P1 = flag1set.1.true -> turnset.1.2 -> P1WAIT           -- p1 seta sua flag, passa a vez para o 2 e espera
+
+
+P1WAIT =  flag2read.1.true -> (turnread.1.2 -> P1WAIT   -- se le da flag 2 true E a vez esta com ... espera
+                            [] turnread.1.1 -> P1ENTER) --                      E a vez ficou sendo dele ... entra 
+       [] flag2read.1.false -> P1ENTER                  -- se o p 2 nao quer entao entra na SC 
+
+P1ENTER = enter.1 -> critical.1 -> leave.1 -> flag1set.1.false -> P1
+														-- entra na sc, faz a sc, sai, seta flag 1 falso - nao quer SC
+                                            
+                                            	        
+P2 = flag2set.2.true -> turnset.2.1 -> P2WAIT			-- p2 tem comportamento analogo a p1, mudando as flags
+
+P2WAIT =  flag1read.2.true -> (turnread.2.1 -> P2WAIT
+                            [] turnread.2.2 -> P2ENTER)
+       [] flag1read.2.false -> P2ENTER
+
+P2ENTER = enter.2 -> critical.2 -> leave.2 -> flag2set.2.false -> P2
+
+
+														-- alfabetos dos processos
+aP1 = {| flag1set.1, flag1read.1, flag2set.1, flag2read.1,
+         turnset.1, turnread.1, enter.1, critical.1, leave.1 |}
+
+aP2 = {| flag1set.2, flag1read.2, flag2set.2, flag2read.2,
+         turnset.2, turnread.2, enter.2, critical.2, leave.2 |}
+
+														-- alfabetos das flags e da turn
+aF1 = {| flag1set,flag1read |}
+
+aF2 = {| flag2set,flag2read |}
+
+aT  = {| turnset,turnread |}
+
+PROCS = P1 [ aP1 || aP2 ] P2
+
+FLAGS = FLAG1(false) [ aF1 || aF2 ] FLAG2(false)
+
+VARS = FLAGS [ union(aF1,aF2) || aT ] TURN(1)
+
+SYSTEM = PROCS [ union(aP1,aP2) || union(union(aF1,aF2),aT) ] VARS
+
+
+
+-- PERGUNTAS ------------
+
+
+
+
+-- ==============================================================
+
+-- analise o processo PROCS - P1 e P2 sincronizam ?
+
+-- P1 e P2 não sincronizam pois a intersecção dos alfabetos aP1 e
+-- aP2 do paralelismo alfabetizado PROCS é um conjunto vazio.
+
+
+
+
+-- ==============================================================
+
+-- idem para FLAGS e VARS - as flags sincronizam ?  e turn ?
+
+-- FLAGS também não sincronizam entre si pelo mesmo motivo de PROCS.
+-- O processo TURN também não sincroniza com FLAGS pelo mesmo motivo.
+
+
+
+
+
+
+
+-- ==============================================================
+
+-- como voce pode enunciar que este sistema ee livre de deadlock sem usar 'assert SYSTEM :[deadlock free]' ?
+assert SYSTEM :[deadlock free]
+
+allFlagEvents = union(aF1, aF2)
+allProcEvents = {|enter, critical, leave|}
+allEvents = union(aT, union(allFlagEvents, allProcEvents))
+
+SpecDeadlockFree =
+  |~| e : allEvents @ e -> SpecDeadlockFree
+
+assert SpecDeadlockFree [F= SYSTEM
+
+
+
+
+
+
+
+
+-- ==============================================================
+
+-- como voce pode provar exclusao mutua entre os processos p1 e p2 ?
+
+SpecExclusao =
+  |~| p : {1,2} @ enter.p -> critical.p -> leave.p -> SpecExclusao
+
+SYSTEMCritico =
+  SYSTEM |\ allProcEvents
+
+assert SpecExclusao [F= SYSTEMCritico
+
+
+
+
+
+
+-- ==============================================================
+
+-- como voce pode provar nao postergacao dos processos ?
+-- ou seja, uma vez que um processo quer a SC, ele vai conseguir acessar em algum momento.
+
+
+-- flagxset.x.true é o evento que sinaliza que Px pretende entrar na seção crítica,
+-- logo, este evento deve ser necessariamente seguido da seção crítica em algum
+-- momento
+SpecFlag2CritP1 =
+  flag1set.1.true -> critical.1 -> flag1set.1.false -> SpecFlag2CritP1
+
+SpecFlag2CritP2 =
+  flag2set.2.true -> critical.2 -> flag2set.2.false ->SpecFlag2CritP2
+
+SYSTEMFlag2Crit =  SYSTEM |\ {|critical, flag2set, flag1set|}
+
+assert (SpecFlag2CritP1 ||| SpecFlag2CritP2) [F= SYSTEMFlag2Crit
+
+
+
+
+
+-- ==============================================================
+-- como o modelo CSP representa o fato do algoritmo de Peterson usar espera ocupada (busy wait) ?
+
+-- A representação pode ser vista no processo PxWait (x : {1,2}).
+-- Eh possivel observar que, em wait, o processo continua efetuando eventos de leitura
+-- (flagyread | y : {1,2} - {x}) indefinidamente em vez de apenas esperar sincronizar
+-- em um evento específico.
+
+
